@@ -6,8 +6,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import relationship
 from flask_login import UserMixin, login_user, LoginManager, login_required, current_user, logout_user
-from forms import CreatePostForm, RegisterForm
+from forms import CreatePostForm, RegisterForm, LoginForm
 from flask_gravatar import Gravatar
+from sqlalchemy.exc import IntegrityError
+
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = '8BYkEfBA6O6donzWlSihBXox7C0sKR6b'
@@ -20,11 +22,21 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
-class User(db.Model):
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
+class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(100), unique=True)
     password = db.Column(db.String(100))
     name = db.Column(db.String(100))
+
 
 class BlogPost(db.Model):
     __tablename__ = "blog_posts"
@@ -35,6 +47,8 @@ class BlogPost(db.Model):
     date = db.Column(db.String(250), nullable=False)
     body = db.Column(db.Text, nullable=False)
     img_url = db.Column(db.String(250), nullable=False)
+
+
 db.create_all()
 
 
@@ -44,32 +58,49 @@ def get_all_posts():
     return render_template("index.html", all_posts=posts)
 
 
-@app.route('/register', methods=['GET', 'POST'])
+@app.route('/register', methods=["GET", "POST"])
 def register():
     form = RegisterForm()
     if form.validate_on_submit():
-        hashed_and_salted_password = generate_password_hash(
+        hash_and_salted_password = generate_password_hash(
             form.password.data,
             method='pbkdf2:sha256',
             salt_length=8
         )
-
         new_user = User(
             email=form.email.data,
-            password=hashed_and_salted_password,
-            name=form.name.data
+            name=form.name.data,
+            password=hash_and_salted_password
         )
 
-        db.session.add(new_user)
-        db.session.commit()
+        try:
+            db.session.add(new_user)
+            db.session.commit()
+        except IntegrityError:
+            flash("You've already signed up with that email, log in instead!")
+            return redirect(url_for('login'))
 
-        return redirect(url_for('get_all_posts'))
+        return redirect(url_for("get_all_posts"))
+
     return render_template("register.html", form=form)
 
 
-@app.route('/login')
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    return render_template("login.html")
+    form = LoginForm()
+    if form.validate_on_submit():
+        email = form.email.data
+        password = form.password.data
+        user = User.query.filter_by(email=email).first()
+
+        if user and check_password_hash(user.password, password):
+            login_user(user)
+            return redirect(url_for('get_all_posts'))
+        else:
+            flash("Password incorrect.")
+            return redirect(url_for('login'))
+
+    return render_template("login.html", form=form)
 
 
 @app.route('/logout')
@@ -141,5 +172,5 @@ def delete_post(post_id):
     return redirect(url_for('get_all_posts'))
 
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__" :
+   app.run(debug=True)
