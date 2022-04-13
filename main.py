@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, flash
+from flask import Flask, render_template, redirect, url_for, flash, abort
 from flask_bootstrap import Bootstrap
 from flask_ckeditor import CKEditor
 from datetime import date
@@ -9,6 +9,8 @@ from flask_login import UserMixin, login_user, LoginManager, login_required, cur
 from forms import CreatePostForm, RegisterForm, LoginForm
 from flask_gravatar import Gravatar
 from sqlalchemy.exc import IntegrityError
+from functools import wraps
+
 
 
 app = Flask(__name__)
@@ -29,6 +31,15 @@ login_manager.init_app(app)
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+
+def admin_only(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if current_user.id != 1:
+            return abort(403)
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 class User(db.Model, UserMixin):
@@ -125,6 +136,7 @@ def contact():
 
 
 @app.route("/new-post")
+@admin_only
 def add_new_post():
     form = CreatePostForm()
     if form.validate_on_submit():
@@ -143,6 +155,7 @@ def add_new_post():
 
 
 @app.route("/edit-post/<int:post_id>")
+@admin_only
 def edit_post(post_id):
     post = BlogPost.query.get(post_id)
     edit_form = CreatePostForm(
@@ -165,6 +178,7 @@ def edit_post(post_id):
 
 
 @app.route("/delete/<int:post_id>")
+@admin_only
 def delete_post(post_id):
     post_to_delete = BlogPost.query.get(post_id)
     db.session.delete(post_to_delete)
